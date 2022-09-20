@@ -30,7 +30,7 @@ wire            mrst_n;
 ////
 
 //timings
-wire            cycle_12_28, cycle_05_22_n, cycle_byte;
+wire            cycle_12_28, cycle_05_21_n, cycle_byte;
 
 
 
@@ -54,7 +54,7 @@ mdl_timinggen TIMINGGEN (
     .o_SH2                      (o_SH2                      ),
 
     .o_CYCLE_12_28              (cycle_12_28                ),
-    .o_CYCLE_05_22_n            (cycle_05_22_n              ),
+    .o_CYCLE_05_21_n            (cycle_05_21_n              ),
     .o_CYCLE_BYTE               (cycle_byte                 )
 );
 
@@ -75,13 +75,13 @@ mdl_lfo LFO (
     .i_phi1_NCEN_n              (phi1ncen_n                 ),
     
     .i_CYCLE_12_28              (cycle_12_28                ),
-    .i_CYCLE_05_22_n            (cycle_05_22_n              ),
-    .i_CYCLE_OR3                (cycle_byte                 ),
+    .i_CYCLE_05_21_n            (cycle_05_21_n              ),
+    .i_CYCLE_BYTE               (cycle_byte                 ),
     
-    .i_LFRQ                     (8'hFA                      ),
-    .i_AMD                      (7'h1C                      ),
+    .i_LFRQ                     (8'hF2                      ),
+    .i_AMD                      (7'hE0                      ),
     .i_PMD                      (7'h07                      ),
-    .i_W                        (2'h2                       ),
+    .i_W                        (2'h0                       ),
     .i_TEST                     (8'h00                      ),
     
     .i_LFRQ_UPDATE_n            (1'b1                       )

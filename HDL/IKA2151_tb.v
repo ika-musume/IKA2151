@@ -8,7 +8,7 @@ always #1 EMUCLK = ~EMUCLK;
 
 initial begin
     #30 IC_n <= 1'b0;
-    #200 IC_n <= 1'b1;
+    #2400 IC_n <= 1'b1;
 end
 
 reg     [1:0]   clkdiv = 2'b00;

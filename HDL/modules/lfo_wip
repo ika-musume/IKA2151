@@ -12,7 +12,7 @@ module mdl_lfo
 
     //timings
     input   wire            i_CYCLE_12_28,
-    input   wire            i_CYCLE_05_21_n,
+    input   wire            i_CYCLE_05_22_n,
     input   wire            i_CYCLE_BYTE,
 
     //register data
@@ -42,17 +42,16 @@ wire            mrst_n = i_MRST_n;
 ////
 
 //additional cycle bits
-reg             cycle_06_22, cycle_13_29, cycle_14_30, cycle_15_31;
-reg             debug_cycle_07_23;
+reg             cycle_06_23, cycle_13_29, cycle_14_30, cycle_15_31;
+reg             debug_cycle_16_00;
 always @(posedge i_EMUCLK) begin
     if(!phi1ncen_n) begin
-        cycle_06_22 <= ~i_CYCLE_05_21_n;
+        cycle_06_23 <= ~i_CYCLE_05_22_n;
 
         cycle_13_29 <= i_CYCLE_12_28;
         cycle_14_30 <= cycle_13_29;
         cycle_15_31 <= cycle_14_30;
-
-        debug_cycle_07_23 <= cycle_06_22;
+        debug_cycle_16_00 <= cycle_15_31;
     end
 end
 
@@ -190,7 +189,7 @@ end
 
     reg ddl2_en;
     always @(posedge i_EMUCLK) begin
-        if(!phi1pcen_n) ddl2_en <= ~i_CYCLE_05_21_n;
+        if(!phi1pcen_n) ddl2_en <= ~i_CYCLE_05_22_n;
     end
 
     reg ddl1, ddl2;
@@ -207,7 +206,7 @@ always @(posedge i_EMUCLK) begin
         if(cycle_14_30) hicntr_cout_step1 <= hicntr_cout; //not dlyd1! async latch elimination
     end
     if(!phi1pcen_n) begin //use positive edge
-        if(!i_CYCLE_05_21_n) hicntr_cout_step2 <= hicntr_cout_step1;
+        if(!i_CYCLE_05_22_n) hicntr_cout_step2 <= hicntr_cout_step1;
     end
 end
 
@@ -359,7 +358,7 @@ end
 reg     [15:0]      phase_acc_parallel;
 always @(posedge i_EMUCLK) begin
     if(!phi1ncen_n) begin
-        if(cycle_15_31) phase_acc_parallel <= phase_acc;
+        if(debug_cycle_16_00) phase_acc_parallel <= phase_acc;
     end
 end
 
@@ -370,22 +369,16 @@ end
 ////
 
 //this counter select AMD/PMD bit
-wire            bitcntr_rst = prescaler_cycle_2 & i_CYCLE_12_28;
+wire            bitcntr_rst = ~(prescaler_cycle_2 | ~i_CYCLE_12_28);
 reg     [3:0]   bitcntr; //counter
 reg     [2:0]   bitsel; //bit select counter value latch
-always @(posedge i_EMUCLK or negedge mrst_n) begin
-    if(!mrst_n) begin
-        bitcntr <= 4'h0;
-        bitsel <= 3'h0;
-    end
-    else begin
-        if(!phi1pcen_n) begin //count at positive edge
-            if(bitcntr_rst) bitcntr <= 4'h0; //reset
-            else begin
-                if(cycle_14_30) begin
-                    if(bitcntr == 4'hF) bitcntr <= 4'h0; //wrap
-                    else bitcntr <= bitcntr + 4'h1;
-                end
+always @(posedge i_EMUCLK) begin
+    if(!phi1pcen_n) begin //count at positive edge
+        if(bitcntr_rst) bitcntr <= 4'h0; //reset
+        else begin
+            if(cycle_14_30) begin
+                if(bitcntr == 4'hF) bitcntr <= 4'h0; //wrap
+                else bitcntr <= bitcntr + 4'h1;
             end
         end
     end
@@ -414,7 +407,7 @@ wire            bitcntr_0_8 = (bitcntr[2:0] == 3'h0);
 
 */
 reg             wf_tri_sign, wf_saw_sign;
-always @(posedge i_EMUCLK) begin //use posedge
+always @(posedge i_EMUCLK) begin
     if(!phi1pcen_n) begin
         if(cycle_15_31) begin
             wf_tri_sign <= phase_acc[8];
@@ -432,10 +425,10 @@ always @(posedge i_EMUCLK) begin
 end
 
 //value stream, predecoded
-//              waveform value                                    (             PM              )   (             AM            )
+//              waveform value                                    (            sign             )   (             AM            )
 wire            noise_value_stream = (a_np_sel_latched == 1'b0) ? (phase_acc_fa_b ^ ~wf_saw_sign) : phase_acc_fa_b              ;
 wire            tri_value_stream   = (a_np_sel_latched == 1'b0) ? (phase_acc_fa_b ^ ~wf_saw_sign) : phase_acc_fa_b ^ wf_tri_sign;
-wire            sq_value_stream    = (a_np_sel_latched == 1'b0) ?  ~cycle_06_22                   :                  wf_saw_sign;
+wire            sq_value_stream    = (a_np_sel_latched == 1'b0) ?  ~cycle_06_23                   :                  wf_saw_sign;
 wire            saw_value_stream   = (a_np_sel_latched == 1'b0) ? (phase_acc_fa_b ^ ~wf_saw_sign) : phase_acc_fa_b              ;
 
 //input selector
@@ -454,24 +447,19 @@ end
 
 //osc value shift register
 reg     [6:0]   osc_value_sr;
-always @(posedge i_EMUCLK or negedge mrst_n) begin
-    if(!mrst_n) osc_value_sr <= 7'h00;
-    else begin
-        if(!phi1ncen_n) begin
-            osc_value_sr[6] <= osc_value_input;
-            osc_value_sr[5:0] <= osc_value_sr[6:1];
-        end
+always @(posedge i_EMUCLK) begin
+    if(!phi1ncen_n) begin
+        osc_value_sr[6] <= osc_value_input;
+        osc_value_sr[5:0] <= osc_value_sr[6:1];
     end
 end
 
 //DEBUG
-reg     [6:0]   osc_value_am_debug, osc_value_pm_debug;
+reg     [6:0]   osc_value_debug;
 always @(posedge i_EMUCLK) begin
-    if(!phi1ncen_n) begin
-        if(debug_cycle_07_23) begin
-            if(a_np_sel_latched) osc_value_am_debug <= osc_value_sr;
-            else osc_value_pm_debug <= osc_value_sr;
-        end
+
+    if(!phi1pcen_n) begin
+        if(bitcntr == 4'd9) osc_value_debug <= osc_value_sr;
     end
 end
 
@@ -479,78 +467,8 @@ end
 //////  Integrator
 ////
 
-//AMD/PMD mux
-reg     [6:0]   ap_muxed;
-always @(i_EMUCLK) begin
-    ap_muxed <= (a_np_sel == 1'b1) ? i_AMD : i_PMD;
-end
-
-//bit selector
-reg             integrator_fa_b;
-always @(*) begin
-    case(bitsel)
-        3'b000: integrator_fa_b <= osc_value_sr[0] & ap_muxed[6];
-        3'b001: integrator_fa_b <= osc_value_sr[1] & ap_muxed[5];
-        3'b010: integrator_fa_b <= osc_value_sr[2] & ap_muxed[4];
-        3'b011: integrator_fa_b <= osc_value_sr[3] & ap_muxed[3];
-        3'b100: integrator_fa_b <= osc_value_sr[4] & ap_muxed[2];
-        3'b101: integrator_fa_b <= osc_value_sr[5] & ap_muxed[1];
-        3'b110: integrator_fa_b <= osc_value_sr[6] & ap_muxed[0];
-        3'b111: integrator_fa_b <= 1'b0;
-    endcase
-end
-
-wire            bitsel_0 = (bitsel == 3'b000);
-wire            bitsel_7 = (bitsel == 3'b111);
-
-//integrator
-wire    [1:0]   integrator_fa;
-reg     [15:0]  integrator_sr = 16'h0;
-
-always @(posedge i_EMUCLK or negedge mrst_n) begin
-    if(!mrst_n) integrator_sr <= 16'h0; //reset
-    else begin
-        if(!phi1ncen_n) begin
-            integrator_sr[15] <= integrator_fa[0];
-            integrator_sr[14:0] <= integrator_sr[15:1];
-        end
-    end
-end
-
-reg             integrator_prev_carry = 1'b0;
-always @(posedge i_EMUCLK or negedge mrst_n) begin
-    if(!mrst_n) integrator_prev_carry <= 1'b0; //reset
-    else begin
-        if(!phi1ncen_n) integrator_prev_carry <= integrator_fa[1];
-    end
-end
-
-wire            integrator_fa_a = ~(~integrator_sr[0] | bitsel_0);
-wire            integrator_fa_cin = integrator_prev_carry & ~cycle_15_31;
-
-assign  integrator_fa = integrator_fa_a + integrator_fa_b + integrator_fa_cin;
 
 
-///////////////////////////////////////////////////////////
-//////  LFA/LFP latch
-////
-
-//latch enables
-reg             bitcntr_0_8_dlyd;
-always @(posedge i_EMUCLK) begin
-    if(!phi1ncen_n) bitcntr_0_8_dlyd <= bitcntr_0_8;
-end
-
-wire            lfa_reg_ld = &{cycle_15_31, bitsel_7, a_np_sel};
-wire            lfp_reg_ld = &{cycle_15_31, bitsel_7, ~a_np_sel};
-
-reg     [7:0]   lfa, lfp;
-
-always @(posedge i_EMUCLK) begin
-    if(!phi1ncen_n) begin
-        if(lfa_reg_ld) lfa <= integrator_sr[15:8];
-    end
-end
 
 
 
