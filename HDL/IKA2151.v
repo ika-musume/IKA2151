@@ -79,8 +79,8 @@ mdl_lfo LFO (
     .i_CYCLE_BYTE               (cycle_byte                 ),
     
     .i_LFRQ                     (8'hF2                      ),
-    .i_AMD                      (7'hE0                      ),
-    .i_PMD                      (7'h07                      ),
+    .i_AMD                      (7'h70                      ),
+    .i_PMD                      (7'h3E                      ),
     .i_W                        (2'h0                       ),
     .i_TEST                     (8'h00                      ),
     

@@ -356,10 +356,10 @@ always @(posedge i_EMUCLK or negedge mrst_n) begin //async reset
 end
 
 //for debug
-reg     [15:0]      phase_acc_parallel;
+reg     [15:0]      phase_acc_debug;
 always @(posedge i_EMUCLK) begin
     if(!phi1ncen_n) begin
-        if(cycle_15_31) phase_acc_parallel <= phase_acc;
+        if(cycle_15_31) phase_acc_debug <= phase_acc;
     end
 end
 
@@ -400,7 +400,7 @@ wire            bitcntr_0_8 = (bitcntr[2:0] == 3'h0);
 
 
 ///////////////////////////////////////////////////////////
-//////  Oscillator value generator
+//////  Oscillator base value generator
 ////
 
 //triangle/sawtooth sign bit latch
@@ -431,53 +431,88 @@ always @(posedge i_EMUCLK) begin
     end
 end
 
-//value stream, predecoded
-//              waveform value                                    (             PM              )   (             AM            )
-wire            noise_value_stream = (a_np_sel_latched == 1'b0) ? (phase_acc_fa_b ^ ~wf_saw_sign) : phase_acc_fa_b              ;
-wire            tri_value_stream   = (a_np_sel_latched == 1'b0) ? (phase_acc_fa_b ^ ~wf_saw_sign) : phase_acc_fa_b ^ wf_tri_sign;
-wire            sq_value_stream    = (a_np_sel_latched == 1'b0) ?  ~cycle_06_22                   :                  wf_saw_sign;
-wire            saw_value_stream   = (a_np_sel_latched == 1'b0) ? (phase_acc_fa_b ^ ~wf_saw_sign) : phase_acc_fa_b              ;
+//base value stream, behavioral implementation
+//              waveform type                                     (             PM             )  (             AM              )
+wire            noise_value_stream = (a_np_sel_latched == 1'b0) ? (phase_acc_fa_b ^ wf_saw_sign) : phase_acc_fa_b ^ 1'b1        ;
+wire            tri_value_stream   = (a_np_sel_latched == 1'b0) ? (phase_acc_fa_b ^ wf_saw_sign) : phase_acc_fa_b ^ ~wf_tri_sign;
+wire            sq_value_stream    = (a_np_sel_latched == 1'b0) ?          cycle_06_22           :         ~wf_saw_sign         ;
+wire            saw_value_stream   = (a_np_sel_latched == 1'b0) ? (phase_acc_fa_b ^ wf_saw_sign) : phase_acc_fa_b ^ 1'b1        ;
 
 //input selector
-reg             osc_value_input;
+reg             base_value_input;
 always @(*) begin
     if(i_CYCLE_BYTE) begin
         case(wfsel)
-            2'd3: osc_value_input <= noise_value_stream;
-            2'd2: osc_value_input <= tri_value_stream;
-            2'd1: osc_value_input <= sq_value_stream;
-            2'd0: osc_value_input <= saw_value_stream;
+            2'd3: base_value_input <= noise_value_stream;
+            2'd2: base_value_input <= tri_value_stream; //gawr gura
+            2'd1: base_value_input <= sq_value_stream;
+            2'd0: base_value_input <= saw_value_stream;
         endcase
     end
-    else osc_value_input <= 1'b0;
+    else base_value_input <= 1'b0;
 end
 
-//osc value shift register
-reg     [6:0]   osc_value_sr;
+//base value shift register
+reg     [6:0]   base_value_sr;
 always @(posedge i_EMUCLK or negedge mrst_n) begin
-    if(!mrst_n) osc_value_sr <= 7'h00;
+    if(!mrst_n) base_value_sr <= 7'h00;
     else begin
         if(!phi1ncen_n) begin
-            osc_value_sr[6] <= osc_value_input;
-            osc_value_sr[5:0] <= osc_value_sr[6:1];
+            base_value_sr[6] <= base_value_input;
+            base_value_sr[5:0] <= base_value_sr[6:1];
         end
     end
 end
 
-//DEBUG
-reg     [6:0]   osc_value_am_debug, osc_value_pm_debug;
+//debug
+reg     [6:0]   base_value_am_debug, base_value_pm_debug;
 always @(posedge i_EMUCLK) begin
     if(!phi1ncen_n) begin
         if(debug_cycle_07_23) begin
-            if(a_np_sel_latched) osc_value_am_debug <= osc_value_sr;
-            else osc_value_pm_debug <= osc_value_sr;
+            if(a_np_sel_latched) base_value_am_debug <= base_value_sr;
+            else base_value_pm_debug <= base_value_sr;
         end
     end
 end
 
+
+
 ///////////////////////////////////////////////////////////
-//////  Integrator
+//////  Volume multiplier
 ////
+
+/*
+                         TAP
+                                MSB 6   5   4   3   2   1   0 LSB
+
+    Base value shift register       0   1   1   0   1   0   1
+
+    Volume register(AMD/PMD)        1   0   0   1   1   0   0
+
+    1. pick volume_reg[6] and do AND with the base value[6:0], serially.
+    -> 0110101
+
+    2. pick volume reg[5] and do AND with the base value {1'b0, value[6:1]}, serially,
+    -> 0000000
+
+    3. pick volume reg[4] and do AND with the base value {2'b00, value[6:2]}, serially,
+    -> 0000000
+
+    ...repeat for all bits of AMD/PMD
+
+    now sum the values below
+        0110101
+        0000000
+        0000000
+        0000110
+        0000011
+        0000000
+        0000000 +
+    =   0111110       ====> this's the final value calculated
+
+    Volume format X.XXXXXX fixed point.
+    AMD/PMD bit 6 is decimal part, and bit 5 to 0 is fractional part. Step width 0.015625.
+*/
 
 //AMD/PMD mux
 reg     [6:0]   ap_muxed;
@@ -486,49 +521,50 @@ always @(i_EMUCLK) begin
 end
 
 //bit selector
-reg             integrator_fa_b;
+reg             multiplier_fa_b;
 always @(*) begin
     case(bitsel)
-        3'b000: integrator_fa_b <= osc_value_sr[0] & ap_muxed[6];
-        3'b001: integrator_fa_b <= osc_value_sr[1] & ap_muxed[5];
-        3'b010: integrator_fa_b <= osc_value_sr[2] & ap_muxed[4];
-        3'b011: integrator_fa_b <= osc_value_sr[3] & ap_muxed[3];
-        3'b100: integrator_fa_b <= osc_value_sr[4] & ap_muxed[2];
-        3'b101: integrator_fa_b <= osc_value_sr[5] & ap_muxed[1];
-        3'b110: integrator_fa_b <= osc_value_sr[6] & ap_muxed[0];
-        3'b111: integrator_fa_b <= 1'b0;
+        3'b000: multiplier_fa_b <= base_value_sr[0] & ap_muxed[6];
+        3'b001: multiplier_fa_b <= base_value_sr[1] & ap_muxed[5];
+        3'b010: multiplier_fa_b <= base_value_sr[2] & ap_muxed[4];
+        3'b011: multiplier_fa_b <= base_value_sr[3] & ap_muxed[3];
+        3'b100: multiplier_fa_b <= base_value_sr[4] & ap_muxed[2];
+        3'b101: multiplier_fa_b <= base_value_sr[5] & ap_muxed[1];
+        3'b110: multiplier_fa_b <= base_value_sr[6] & ap_muxed[0];
+        3'b111: multiplier_fa_b <= 1'b0;
     endcase
 end
 
 wire            bitsel_0 = (bitsel == 3'b000);
 wire            bitsel_7 = (bitsel == 3'b111);
 
-//integrator
-wire    [1:0]   integrator_fa;
-reg     [15:0]  integrator_sr = 16'h0;
+//multiplier
+wire    [1:0]   multiplier_fa;
+reg     [15:0]  multiplier_sr = 16'h0;
 
 always @(posedge i_EMUCLK or negedge mrst_n) begin
-    if(!mrst_n) integrator_sr <= 16'h0; //reset
+    if(!mrst_n) multiplier_sr <= 16'h0; //reset
     else begin
         if(!phi1ncen_n) begin
-            integrator_sr[15] <= integrator_fa[0];
-            integrator_sr[14:0] <= integrator_sr[15:1];
+            multiplier_sr[15] <= multiplier_fa[0];
+            multiplier_sr[14:0] <= multiplier_sr[15:1];
         end
     end
 end
 
-reg             integrator_prev_carry = 1'b0;
+reg             multiplier_prev_carry = 1'b0;
 always @(posedge i_EMUCLK or negedge mrst_n) begin
-    if(!mrst_n) integrator_prev_carry <= 1'b0; //reset
+    if(!mrst_n) multiplier_prev_carry <= 1'b0; //reset
     else begin
-        if(!phi1ncen_n) integrator_prev_carry <= integrator_fa[1];
+        if(!phi1ncen_n) multiplier_prev_carry <= multiplier_fa[1];
     end
 end
 
-wire            integrator_fa_a = ~(~integrator_sr[0] | bitsel_0);
-wire            integrator_fa_cin = integrator_prev_carry & ~cycle_15_31;
+wire            multiplier_fa_a = ~(~multiplier_sr[0] | bitsel_0);
+wire            multiplier_fa_cin = multiplier_prev_carry & ~cycle_15_31;
 
-assign  integrator_fa = integrator_fa_a + integrator_fa_b + integrator_fa_cin;
+assign  multiplier_fa = multiplier_fa_a + multiplier_fa_b + multiplier_fa_cin;
+
 
 
 ///////////////////////////////////////////////////////////
@@ -541,19 +577,33 @@ always @(posedge i_EMUCLK) begin
     if(!phi1ncen_n) bitcntr_0_8_dlyd <= bitcntr_0_8;
 end
 
+//LFA LFP register load
 wire            lfa_reg_ld = &{cycle_15_31, bitsel_7, a_np_sel};
 wire            lfp_reg_ld = &{cycle_15_31, bitsel_7, ~a_np_sel};
 
-reg     [7:0]   lfa, lfp;
+//LFA LFP register
+reg     [7:0]   lfa_reg, lfp_reg;
 
+//LFP sign/value control
+wire            pmd_zero = (i_PMD == 7'h00);
+wire            lfp_sign_ctrl = (wfsel_tri == 1'b1) ? wf_tri_sign : wf_saw_sign; //AOI
+
+//note that LFA is 8-bit unsigned, LFP is 8-bit sign and magnitude output
 always @(posedge i_EMUCLK) begin
     if(!phi1ncen_n) begin
-        if(lfa_reg_ld) lfa <= integrator_sr[15:8];
+        if(lfa_reg_ld) lfa_reg <= multiplier_sr[15:8];
+        if(lfp_reg_ld) lfp_reg <= (pmd_zero == 1'b1) ? 8'h00 : {(multiplier_sr[15] ^ lfp_sign_ctrl), multiplier_sr[14:8]};
     end
 end
 
-
-
+//lfp debug(2's complement)
+reg     [7:0]   lfp_reg_debug;
+always @(posedge i_EMUCLK) begin
+    if(!phi1ncen_n) begin
+        if(lfp_reg_ld) lfp_reg_debug <= (pmd_zero == 1'b1) ? 8'h00 : 
+                                        ((multiplier_sr[15] ^ lfp_sign_ctrl) == 1'b1) ? (~multiplier_sr[14:8] + 7'h1) : multiplier_sr[14:8];
+    end
+end
 
 
 endmodule
