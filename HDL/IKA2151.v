@@ -32,7 +32,8 @@ wire            mrst_n;
 //timings
 wire            cycle_12_28, cycle_05_21_n, cycle_byte;
 
-
+//LFO
+wire    [7:0]   LFA, LFP;
 
 
 
@@ -59,13 +60,6 @@ mdl_timinggen TIMINGGEN (
 );
 
 
-
-
-
-
-
-
-
 mdl_lfo LFO (
     .i_EMUCLK                   (i_EMUCLK                   ),
 
@@ -79,12 +73,31 @@ mdl_lfo LFO (
     .i_CYCLE_BYTE               (cycle_byte                 ),
     
     .i_LFRQ                     (8'hF2                      ),
-    .i_AMD                      (7'h70                      ),
-    .i_PMD                      (7'h3E                      ),
-    .i_W                        (2'h0                       ),
+    .i_AMD                      (7'hEF                      ),
+    .i_PMD                      (7'hEF                      ),
+    .i_W                        (2'h2                       ),
     .i_TEST                     (8'h00                      ),
     
-    .i_LFRQ_UPDATE_n            (1'b1                       )
+    .i_LFRQ_UPDATE_n            (1'b1                       ),
+
+    .o_LFA                      (                           ),
+    .o_LFP                      (LFP                        )
+);
+
+
+mdl_pg PG (
+    .i_EMUCLK                   (i_EMUCLK                   ),
+
+    .i_MRST_n                   (mrst_n                     ),
+    
+    .i_phi1_PCEN_n              (phi1pcen_n                 ),
+    .i_phi1_NCEN_n              (phi1ncen_n                 ),
+
+    .i_KC                       (7'h3A                      ),
+    .i_KF                       (6'h2B                      ),
+    .i_PMS                      (3'd7                       ),
+    .i_DT2                      (2'd3                       ),
+    .i_LFP                      (LFP                        )
 );
 
 endmodule

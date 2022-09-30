@@ -23,7 +23,10 @@ module mdl_lfo
     input   wire    [7:0]   i_TEST, //test register
 
     //control signal
-    input   wire            i_LFRQ_UPDATE_n
+    input   wire            i_LFRQ_UPDATE_n,
+
+    output  wire    [7:0]   o_LFP,
+    output  wire    [7:0]   o_LFA
 );
 
 
@@ -583,6 +586,8 @@ wire            lfp_reg_ld = &{cycle_15_31, bitsel_7, ~a_np_sel};
 
 //LFA LFP register
 reg     [7:0]   lfa_reg, lfp_reg;
+assign  o_LFA = lfa_reg;
+assign  o_LFP = lfp_reg;
 
 //LFP sign/value control
 wire            pmd_zero = (i_PMD == 7'h00);
@@ -592,7 +597,7 @@ wire            lfp_sign_ctrl = (wfsel_tri == 1'b1) ? wf_tri_sign : wf_saw_sign;
 always @(posedge i_EMUCLK) begin
     if(!phi1ncen_n) begin
         if(lfa_reg_ld) lfa_reg <= multiplier_sr[15:8];
-        if(lfp_reg_ld) lfp_reg <= (pmd_zero == 1'b1) ? 8'h00 : {(multiplier_sr[15] ^ lfp_sign_ctrl), multiplier_sr[14:8]};
+        if(lfp_reg_ld) lfp_reg <= (pmd_zero == 1'b1) ? 8'h00 : {(multiplier_sr[15] ^ ~lfp_sign_ctrl), multiplier_sr[14:8]};
     end
 end
 
@@ -601,7 +606,7 @@ reg     [7:0]   lfp_reg_debug;
 always @(posedge i_EMUCLK) begin
     if(!phi1ncen_n) begin
         if(lfp_reg_ld) lfp_reg_debug <= (pmd_zero == 1'b1) ? 8'h00 : 
-                                        ((multiplier_sr[15] ^ lfp_sign_ctrl) == 1'b1) ? (~multiplier_sr[14:8] + 7'h1) : multiplier_sr[14:8];
+                                        ((multiplier_sr[15] ^ ~lfp_sign_ctrl) == 1'b1) ? (~multiplier_sr[14:8] + 7'h1) : multiplier_sr[14:8];
     end
 end
 
